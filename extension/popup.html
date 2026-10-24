@@ -1,0 +1,65 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PriceWhisper</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main class="app">
+    <header class="header">
+      <div class="brand">
+        <div class="logo">P</div>
+        <div>
+          <h1>PriceWhisper</h1>
+          <p class="tagline">Smarter shopping starts here.</p>
+        </div>
+      </div>
+      <span class="version">BETA</span>
+    </header>
+
+    <section class="intro">
+      <p class="eyebrow">YOUR SHOPPING ASSISTANT</p>
+      <h2>Is this a good deal?</h2>
+      <p class="intro-text">
+        Scan the current product page to get its name, price, and currency.
+      </p>
+    </section>
+
+    <section class="product-card">
+      <div class="card-heading">
+        <span class="status-dot"></span>
+        <span>DETECTED PRODUCT</span>
+      </div>
+
+      <h3 id="product-name">No product scanned yet</h3>
+      <p id="product-site" class="product-site">
+        Open a product page to get started.
+      </p>
+
+      <div class="price-area">
+        <span class="price-label">Current price</span>
+        <p id="product-price" class="price">--</p>
+      </div>
+    </section>
+
+    <button id="scan-button" class="scan-button">
+      <span id="button-text">Scan this product</span>
+      <span aria-hidden="true">→</span>
+    </button>
+
+    <p id="status-message" class="status-message" role="status">
+      Ready when you are.
+    </p>
+
+    <footer class="footer">
+      <span>PRICEWHISPER</span>
+      <span>Shop smarter, not harder.</span>
+    </footer>
+  </main>
+
+  <script src="popup.js"></script>
+</body>
+</html>

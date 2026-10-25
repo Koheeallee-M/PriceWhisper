@@ -1,0 +1,70 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PriceWhisper | Price Dashboard</title>
+  <link rel="stylesheet" href="dashboard.css">
+</head>
+<body>
+  <main class="dashboard">
+    <header class="page-header">
+      <div>
+        <p class="eyebrow">PRICEWHISPER</p>
+        <h1>Your price dashboard</h1>
+        <p class="subtitle">Your saved products, recorded prices, and possible matches.</p>
+      </div>
+      <span class="local-badge">LOCAL DATABASE</span>
+    </header>
+
+    <p id="status" class="status" role="status">Loading saved products...</p>
+
+    <section class="panel">
+      <h2>Saved products</h2>
+      <p class="section-help">Select a product to inspect its recorded price history.</p>
+      <div id="products" class="products">
+        <p>Loading...</p>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Compare possible matches</h2>
+      <p class="section-help">
+        Search using shared product keywords, such as a brand and model.
+        Results are candidates, not guaranteed identical products.
+      </p>
+      <form id="compare-form" class="search-form">
+        <input
+          id="search-query"
+          type="search"
+          placeholder="Enter product keywords..."
+          minlength="2"
+          required
+        >
+        <button type="submit">Find prices</button>
+      </form>
+      <div id="comparison-results" class="comparison-results">
+        <p>Search your saved products to compare possible matches.</p>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2 id="history-title">Price history</h2>
+      <p id="history-description" class="section-help">
+        Select a saved product above to view its recorded prices.
+      </p>
+      <div class="chart-wrap">
+        <canvas id="history-chart" aria-label="Product price history chart"></canvas>
+      </div>
+      <div id="history-details" class="history-details"></div>
+    </section>
+
+    <footer>
+      PriceWhisper · Prices are based on recorded scans, not live market feeds.
+    </footer>
+  </main>
+
+  <script src="dashboard.js"></script>
+</body>
+</html>

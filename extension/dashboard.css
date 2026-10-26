@@ -224,3 +224,23 @@ footer {
     width: 100%;
   }
 }
+
+
+.price-change {
+  margin: 8px 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.price-change.price-drop {
+  color: #16803d;
+}
+
+.price-change.price-increase {
+  color: #c2410c;
+}
+
+.price-change.price-unchanged {
+  color: #5b4bb7;
+}

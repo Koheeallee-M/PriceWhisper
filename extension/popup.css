@@ -242,3 +242,38 @@ h2 {
 .dashboard-button:hover {
   background: #f1edff;
 }
+
+
+/* Day 5: Price-change status styles */
+.status-message {
+  padding: 10px 12px;
+  border-radius: 8px;
+  margin-top: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  transition: background-color 0.2s ease;
+}
+
+.status-message.price-drop {
+  background-color: #e8f7ed;
+  color: #176b36;
+  border: 1px solid #b7e4c7;
+}
+
+.status-message.price-increase {
+  background-color: #fff0e8;
+  color: #9a3412;
+  border: 1px solid #fed7aa;
+}
+
+.status-message.price-unchanged {
+  background-color: #eef2ff;
+  color: #3730a3;
+  border: 1px solid #c7d2fe;
+}
+
+.status-message.status-neutral {
+  background-color: #f3f4f6;
+  color: #374151;
+  border: 1px solid #e5e7eb;
+}

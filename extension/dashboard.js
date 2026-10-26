@@ -98,9 +98,59 @@ function renderProducts(products) {
       ? `Last scanned: ${new Date(product.updated_at).toLocaleString()}`
       : "Scan date unavailable";
 
-    button.append(name, site, price, date);
+    
+    const change = document.createElement("p");
+    change.className = "price-change";
+
+    const difference = Number(product.price_difference);
+    const percentage = Number(product.price_percentage_change);
+
+    switch (product.price_change_status) {
+      case "price_drop":
+        change.classList.add("price-drop");
+        change.textContent =
+          `↓ Price dropped by ${formatPrice(
+            Math.abs(difference).toFixed(2),
+            product.currency
+          )}` +
+          (Number.isFinite(percentage)
+            ? ` (${Math.abs(percentage).toFixed(2)}%)`
+            : "");
+        break;
+
+      case "price_increase":
+        change.classList.add("price-increase");
+        change.textContent =
+          `↑ Price increased by ${formatPrice(
+            difference.toFixed(2),
+            product.currency
+          )}` +
+          (Number.isFinite(percentage)
+            ? ` (${percentage.toFixed(2)}%)`
+            : "");
+        break;
+
+      case "unchanged":
+        change.classList.add("price-unchanged");
+        change.textContent = "Price unchanged since previous scan.";
+        break;
+
+      case "first_observation":
+        change.textContent = "First price recorded.";
+        break;
+
+      case "currency_mismatch":
+        change.textContent = "Currency changed; comparison skipped.";
+        break;
+
+      default:
+        change.textContent = "Price change unavailable.";
+    }
+
+    button.append(name, site, price, change, date);
     button.addEventListener("click", () => selectProduct(product));
     productsElement.appendChild(button);
+
   }
 }
 

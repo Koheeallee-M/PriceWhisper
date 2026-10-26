@@ -9,9 +9,29 @@ const dashboardButton = document.getElementById("dashboard-button");
 
 const API_URL = "http://127.0.0.1:5000";
 
-function setStatus(message) {
+
+function setStatus(message, type = "neutral") {
   statusMessage.textContent = message;
+
+  statusMessage.classList.remove(
+    "price-drop",
+    "price-increase",
+    "price-unchanged",
+    "status-neutral"
+  );
+
+  const statusClasses = {
+    drop: "price-drop",
+    increase: "price-increase",
+    unchanged: "price-unchanged",
+    neutral: "status-neutral"
+  };
+
+  statusMessage.classList.add(
+    statusClasses[type] || statusClasses.neutral
+  );
 }
+
 
 function showProduct(product) {
   productName.textContent = product.name || "Unknown product";
@@ -100,22 +120,78 @@ async function scanProduct() {
     showProduct(product);
 
     // Keep the scan successful even if the backend is unavailable.
+    
     try {
-      await saveProductToBackend(product);
+      const result = await saveProductToBackend(product);
+      const change = result.price_change;
 
       if (
-        product.price !== null &&
-        product.price !== undefined &&
-        String(product.price).trim() !== ""
+        product.price === null ||
+        product.price === undefined ||
+        String(product.price).trim() === ""
       ) {
+        setStatus("Product saved, but its price could not be detected.");
+      } else if (!change) {
         setStatus("Product scanned and saved to price history.");
       } else {
-        setStatus("Product saved, but its price could not be detected.");
+        const currency = change.currency || product.currency || "";
+        const formatPrice = (value) => {
+          const number = Number(value);
+
+          return Number.isFinite(number)
+            ? `${currency} ${number.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+              })}`.trim()
+            : "unavailable";
+        };
+
+        switch (change.status) {
+          case "first_observation":
+            setStatus(
+              `First price recorded: ${formatPrice(change.current_price)}.`
+            );
+            break;
+
+          case "price_drop":
+            setStatus(
+              `Price dropped! ${formatPrice(change.previous_price)} → ` +
+              `${formatPrice(change.current_price)}. ` +
+              `Saved ${formatPrice(Math.abs(change.difference))}` +
+              (change.percentage_change !== null
+                ? ` (${Math.abs(change.percentage_change)}%).`
+                : ".")
+            );
+            break;
+
+          case "price_increase":
+            setStatus(
+              `Price increased: ${formatPrice(change.previous_price)} → ` +
+              `${formatPrice(change.current_price)}.`
+            );
+            break;
+
+          case "unchanged":
+            setStatus(
+              `Price unchanged: ${formatPrice(change.current_price)}.`
+            );
+            break;
+
+          case "currency_mismatch":
+            setStatus(
+              "Price saved, but the currency changed. Comparison skipped."
+            );
+            break;
+
+          default:
+            setStatus("Product scanned and saved to price history.");
+        }
       }
     } catch (error) {
       console.error("PriceWhisper backend error:", error);
       setStatus("Product scanned, but could not be saved. Is Flask running?");
     }
+
   } catch (error) {
     console.error("PriceWhisper scan error:", error);
 

@@ -1,4 +1,7 @@
-
+import math
+import re
+import unicodedata
+from difflib import SequenceMatcher
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import sqlite3
@@ -56,6 +59,7 @@ def health():
     })
 
 
+
 @app.post("/api/products")
 def save_product():
     data = request.get_json(silent=True)
@@ -69,8 +73,10 @@ def save_product():
     price = data.get("price")
     currency = data.get("currency")
 
-    if not all(isinstance(value, str) and value.strip()
-               for value in (name, site, url)):
+    if not all(
+        isinstance(value, str) and value.strip()
+        for value in (name, site, url)
+    ):
         return jsonify({
             "error": "name, site, and url are required."
         }), 400
@@ -83,9 +89,94 @@ def save_product():
     if price is not None:
         price = str(price).strip() or None
 
+    def numeric_price(value):
+        if value is None:
+            return None
+
+        try:
+            result = float(str(value).replace(",", "").strip())
+            if result < 0:
+                return None
+            return result
+        except (ValueError, TypeError):
+            return None
+
+    new_price = numeric_price(price)
     now = utc_now()
 
+    price_change = {
+        "status": "unavailable",
+        "previous_price": None,
+        "current_price": price,
+        "difference": None,
+        "percentage_change": None,
+        "currency": currency
+    }
+
     with get_db() as db:
+        # Read the previous observation before updating the product.
+        existing = db.execute(
+            "SELECT * FROM products WHERE url = ?", (url,)
+        ).fetchone()
+
+        previous_price = None
+        previous_currency = None
+
+        if existing:
+            previous = db.execute("""
+                SELECT price, currency
+                FROM price_history
+                WHERE product_id = ?
+                ORDER BY recorded_at DESC, id DESC
+                LIMIT 1
+            """, (existing["id"],)).fetchone()
+
+            # Fall back to the saved product price if history is empty.
+            if previous:
+                previous_price = numeric_price(previous["price"])
+                previous_currency = previous["currency"]
+            else:
+                previous_price = numeric_price(existing["current_price"])
+                previous_currency = existing["currency"]
+
+        if new_price is not None and previous_price is not None:
+            same_currency = (
+                (currency or "").upper()
+                == (previous_currency or "").upper()
+            )
+
+            if same_currency:
+                difference = round(new_price - previous_price, 2)
+
+                if previous_price > 0:
+                    percentage = round(
+                        (difference / previous_price) * 100, 2
+                    )
+                else:
+                    percentage = None
+
+                if difference < 0:
+                    status = "price_drop"
+                elif difference > 0:
+                    status = "price_increase"
+                else:
+                    status = "unchanged"
+
+                price_change = {
+                    "status": status,
+                    "previous_price": previous_price,
+                    "current_price": new_price,
+                    "difference": difference,
+                    "percentage_change": percentage,
+                    "currency": currency
+                }
+            else:
+                price_change["status"] = "currency_mismatch"
+                price_change["previous_price"] = previous_price
+
+        elif new_price is not None:
+            price_change["status"] = "first_observation"
+
         db.execute("""
             INSERT INTO products
                 (name, site, url, current_price, currency, updated_at)
@@ -116,19 +207,97 @@ def save_product():
 
     return jsonify({
         "message": "Product saved successfully.",
-        "product": dict(saved)
+        "product": dict(saved),
+        "price_change": price_change
     }), 201
+
+
 
 
 @app.get("/api/products")
 def list_products():
+    def numeric_price(value):
+        if value is None:
+            return None
+
+        try:
+            result = float(str(value).replace(",", "").strip())
+            if result >= 0 and math.isfinite(result):
+                return result
+            return None
+        except (ValueError, TypeError):
+            return None
+
     with get_db() as db:
-        products = db.execute("""
-            SELECT * FROM products
+        rows = db.execute("""
+            SELECT *
+            FROM products
             ORDER BY updated_at DESC
         """).fetchall()
 
-    return jsonify([dict(product) for product in products])
+        products = []
+
+        for row in rows:
+            product = dict(row)
+
+            history = db.execute("""
+                SELECT price, currency, recorded_at
+                FROM price_history
+                WHERE product_id = ?
+                ORDER BY recorded_at DESC, id DESC
+                LIMIT 2
+            """, (product["id"],)).fetchall()
+
+            product["previous_price"] = None
+            product["price_change_status"] = "unavailable"
+            product["price_difference"] = None
+            product["price_percentage_change"] = None
+
+            if history:
+                latest = history[0]
+                current_price = numeric_price(latest["price"])
+
+                if len(history) == 1:
+                    if current_price is not None:
+                        product["price_change_status"] = "first_observation"
+
+                else:
+                    previous = history[1]
+                    previous_price = numeric_price(previous["price"])
+
+                    product["previous_price"] = previous["price"]
+
+                    if current_price is not None and previous_price is not None:
+                        same_currency = (
+                            (latest["currency"] or "").upper()
+                            == (previous["currency"] or "").upper()
+                        )
+
+                        if not same_currency:
+                            product["price_change_status"] = "currency_mismatch"
+                        else:
+                            difference = round(
+                                current_price - previous_price, 2
+                            )
+
+                            product["price_difference"] = difference
+
+                            if previous_price > 0:
+                                product["price_percentage_change"] = round(
+                                    difference / previous_price * 100, 2
+                                )
+
+                            if difference < 0:
+                                product["price_change_status"] = "price_drop"
+                            elif difference > 0:
+                                product["price_change_status"] = "price_increase"
+                            else:
+                                product["price_change_status"] = "unchanged"
+
+            products.append(product)
+
+    return jsonify(products)
+
 
 
 @app.get("/api/products/<int:product_id>/history")
@@ -155,35 +324,141 @@ def product_history(product_id):
     })
 
 
+
+def normalize_product_text(text):
+    """Normalize a title for more consistent text comparison."""
+    text = unicodedata.normalize("NFKD", text or "")
+    text = "".join(
+        char for char in text
+        if not unicodedata.combining(char)
+    )
+    text = text.lower()
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    return " ".join(text.split())
+
+
+def get_product_tokens(text):
+    """Split a normalized title into useful comparison tokens."""
+    ignored_words = {
+        "the", "and", "for", "with", "from", "new",
+        "official", "original", "best", "buy", "sale",
+        "in", "on", "at", "by", "a", "an"
+    }
+
+    return {
+        token
+        for token in normalize_product_text(text).split()
+        if token not in ignored_words
+    }
+
+
+def get_model_tokens(text):
+    """Find tokens containing both letters and digits."""
+    tokens = get_product_tokens(text)
+
+    return {
+        token for token in tokens
+        if any(char.isalpha() for char in token)
+        and any(char.isdigit() for char in token)
+    }
+
+
+def calculate_match_score(query, product_name):
+    """Return a text similarity score between 0 and 1."""
+    normalized_query = normalize_product_text(query)
+    normalized_name = normalize_product_text(product_name)
+
+    if not normalized_query or not normalized_name:
+        return 0.0
+
+    query_tokens = get_product_tokens(normalized_query)
+    name_tokens = get_product_tokens(normalized_name)
+
+    if not query_tokens or not name_tokens:
+        return 0.0
+
+    shared_tokens = query_tokens & name_tokens
+    all_tokens = query_tokens | name_tokens
+
+    token_similarity = len(shared_tokens) / len(all_tokens)
+
+    title_similarity = SequenceMatcher(
+        None,
+        normalized_query,
+        normalized_name
+    ).ratio()
+
+    query_models = get_model_tokens(normalized_query)
+    name_models = get_model_tokens(normalized_name)
+    shared_models = query_models & name_models
+
+    # Matching model identifiers provide a strong additional signal.
+    if shared_models:
+        return min(
+            1.0,
+            0.65 + (0.20 * title_similarity)
+            + (0.15 * token_similarity)
+        )
+
+    return (
+        0.55 * token_similarity
+        + 0.45 * title_similarity
+    )
+
+
 @app.get("/api/compare")
 def compare_products():
     query = request.args.get("q", "").strip()
-    terms = query.split()
 
-    if not terms:
-        return jsonify({"error": "Enter a product name or keywords."}), 400
-
-    # Every search term must appear somewhere in the product name.
-    conditions = " AND ".join(
-        ["LOWER(name) LIKE ?" for _ in terms]
-    )
-    parameters = [f"%{term.lower()}%" for term in terms]
+    if len(query) < 2:
+        return jsonify({
+            "error": "Enter at least two characters."
+        }), 400
 
     with get_db() as db:
-        rows = db.execute(
-            f"""
-            SELECT id, name, site, url, current_price, currency, updated_at
+        rows = db.execute("""
+            SELECT id, name, site, url, current_price,
+                   currency, updated_at
             FROM products
             WHERE current_price IS NOT NULL
-              AND {conditions}
-            ORDER BY CAST(
-                REPLACE(current_price, ',', '') AS REAL
-            ) ASC
-            """,
-            parameters
-        ).fetchall()
+        """).fetchall()
 
-    return jsonify([dict(row) for row in rows])
+    matches = []
+
+    for row in rows:
+        product = dict(row)
+
+        score = calculate_match_score(
+            query,
+            product.get("name", "")
+        )
+
+        # Exclude very weak matches.
+        if score < 0.25:
+            continue
+
+        product["match_score"] = round(score, 3)
+
+        if score >= 0.70:
+            product["match_confidence"] = "Likely match"
+        elif score >= 0.40:
+            product["match_confidence"] = "Possible match"
+        else:
+            product["match_confidence"] = "Weak match"
+
+        matches.append(product)
+
+    matches.sort(
+        key=lambda product: (
+            -product["match_score"],
+            float(
+                str(product["current_price"])
+                .replace(",", "")
+            )
+        )
+    )
+
+    return jsonify(matches)
 
 init_db()
 

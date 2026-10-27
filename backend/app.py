@@ -590,6 +590,158 @@ def compare_products():
 
     return jsonify(matches)
 
+
+@app.get("/api/products/<int:product_id>/prediction")
+def predict_product_price(product_id):
+    """Estimate the next price from historical observations."""
+
+    with get_db() as db:
+        product = db.execute(
+            "SELECT id, name, currency FROM products WHERE id = ?",
+            (product_id,)
+        ).fetchone()
+
+        if product is None:
+            return jsonify({"error": "Product not found."}), 404
+
+        rows = db.execute("""
+            SELECT price, currency, recorded_at
+            FROM price_history
+            WHERE product_id = ?
+            ORDER BY recorded_at ASC, id ASC
+        """, (product_id,)).fetchall()
+
+    # Keep only valid, finite, non-negative prices.
+    observations = []
+
+    for row in rows:
+        try:
+            price = float(str(row["price"]).replace(",", "").strip())
+        except (ValueError, TypeError):
+            continue
+
+        if not math.isfinite(price) or price < 0:
+            continue
+
+        currency = (row["currency"] or "").strip().upper()
+
+        if not currency:
+            continue
+
+        observations.append({
+            "price": price,
+            "currency": currency,
+            "recorded_at": row["recorded_at"]
+        })
+
+    if not observations:
+        return jsonify({
+            "product_id": product_id,
+            "product_name": product["name"],
+            "status": "insufficient_data",
+            "message": "No valid price observations are available."
+        }), 200
+
+    # Use the most recently observed currency.
+    latest_currency = observations[-1]["currency"]
+
+    observations = [
+        item for item in observations
+        if item["currency"] == latest_currency
+    ]
+
+    if len(observations) < 3:
+        return jsonify({
+            "product_id": product_id,
+            "product_name": product["name"],
+            "currency": latest_currency,
+            "observations": len(observations),
+            "status": "insufficient_data",
+            "message": "At least three observations in the same currency are needed."
+        }), 200
+
+    # Convert timestamps to elapsed days from the first observation.
+    try:
+        start_time = datetime.fromisoformat(
+            observations[0]["recorded_at"].replace("Z", "+00:00")
+        )
+
+        x_values = []
+
+        for item in observations:
+            recorded_time = datetime.fromisoformat(
+                item["recorded_at"].replace("Z", "+00:00")
+            )
+
+            x_values.append(
+                (recorded_time - start_time).total_seconds() / 86400
+            )
+
+    except (ValueError, TypeError):
+        return jsonify({
+            "product_id": product_id,
+            "product_name": product["name"],
+            "status": "invalid_history",
+            "message": "The saved timestamps could not be interpreted."
+        }), 200
+
+    y_values = [item["price"] for item in observations]
+
+    # If every observation has the same timestamp, use observation order.
+    if max(x_values) == min(x_values):
+        x_values = list(range(len(observations)))
+
+    count = len(x_values)
+    mean_x = sum(x_values) / count
+    mean_y = sum(y_values) / count
+
+    denominator = sum((x - mean_x) ** 2 for x in x_values)
+
+    if denominator == 0:
+        return jsonify({
+            "product_id": product_id,
+            "product_name": product["name"],
+            "status": "insufficient_data",
+            "message": "There is not enough time variation to estimate a trend."
+        }), 200
+
+    slope = sum(
+        (x - mean_x) * (y - mean_y)
+        for x, y in zip(x_values, y_values)
+    ) / denominator
+
+    intercept = mean_y - slope * mean_x
+    next_x = max(x_values) + (
+        max(x_values) - min(x_values)
+    ) / (count - 1)
+
+    estimated_price = max(0, intercept + slope * next_x)
+
+    if slope < -0.01:
+        trend = "decreasing"
+    elif slope > 0.01:
+        trend = "increasing"
+    else:
+        trend = "stable"
+
+    return jsonify({
+        "product_id": product_id,
+        "product_name": product["name"],
+        "currency": latest_currency,
+        "observations": count,
+        "latest_price": round(y_values[-1], 2),
+        "estimated_next_price": round(estimated_price, 2),
+        "estimated_change": round(estimated_price - y_values[-1], 2),
+        "trend": trend,
+        "status": "estimate",
+        "method": "linear_regression",
+        "message": (
+            "This is a statistical estimate based on saved prices, "
+            "not a guarantee of future market prices."
+        )
+    }), 200
+
+
 init_db()
 
 if __name__ == "__main__":

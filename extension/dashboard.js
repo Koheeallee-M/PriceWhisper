@@ -10,6 +10,21 @@ const historyTitle = document.getElementById("history-title");
 const historyDescription = document.getElementById("history-description");
 const historyDetails = document.getElementById("history-details");
 const chart = document.getElementById("history-chart");
+const predictionProductName = document.getElementById(
+  "prediction-product-name"
+);
+const predictionResults = document.getElementById(
+  "prediction-results"
+);
+const predictionStatus = document.getElementById(
+  "prediction-status"
+);
+const predictionRefreshButton = document.getElementById(
+  "prediction-refresh-button"
+);
+
+let predictionProductId = null;
+
 const targetForm = document.getElementById("target-form");
 const targetPriceInput = document.getElementById("target-price");
 const targetCurrencyInput = document.getElementById("target-currency");
@@ -197,6 +212,7 @@ function renderProducts(products) {
 async function selectProduct(product) {
   selectedProductId = product.id;
   renderProducts(savedProducts);
+  loadPrediction(product.id);
   loadTargetPrice(product);
 
   historyTitle.textContent = `Price history: ${product.name}`;
@@ -450,6 +466,77 @@ window.addEventListener("resize", () => {
 });
 
 loadProducts();
+
+async function loadPrediction(productId) {
+  predictionProductId = productId;
+  predictionRefreshButton.disabled = true;
+
+  predictionProductName.textContent = "Loading prediction...";
+  predictionResults.replaceChildren();
+  predictionStatus.textContent = "Analysing saved price history...";
+
+  try {
+    const response = await fetch(
+      `${API_URL}/api/products/${productId}/prediction`
+    );
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.error || "Could not load prediction.");
+    }
+
+    predictionProductName.textContent =
+      result.product_name || "Selected product";
+
+    if (result.status !== "estimate") {
+      predictionStatus.textContent =
+        result.message || "A prediction is not available yet.";
+      return;
+    }
+
+    const details = [
+      ["Latest price", formatPrice(
+        Number(result.latest_price).toFixed(2),
+        result.currency
+      )],
+      ["Estimated next price", formatPrice(
+        Number(result.estimated_next_price).toFixed(2),
+        result.currency
+      )],
+      ["Estimated change", formatPrice(
+        Number(result.estimated_change).toFixed(2),
+        result.currency
+      )],
+      ["Trend", result.trend],
+      ["Observations", String(result.observations)]
+    ];
+
+    for (const [label, value] of details) {
+      const item = document.createElement("p");
+      const strong = document.createElement("strong");
+
+      strong.textContent = `${label}: `;
+      item.append(strong, document.createTextNode(value));
+      predictionResults.appendChild(item);
+    }
+
+    predictionStatus.textContent = result.message;
+  } catch (error) {
+    console.error("Could not load prediction:", error);
+    predictionStatus.textContent =
+      error.message || "Could not load prediction. Check that Flask is running.";
+  } finally {
+    predictionRefreshButton.disabled = predictionProductId === null;
+  }
+}
+
+predictionRefreshButton.addEventListener("click", () => {
+  if (predictionProductId !== null) {
+    loadPrediction(predictionProductId);
+  }
+});
+
 
 
 async function loadTargetPrice(product) {

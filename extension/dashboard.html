@@ -105,6 +105,30 @@
       <div id="history-details" class="history-details"></div>
     </section>
 
+    
+    <section class="panel">
+      <h2>AI Price Prediction</h2>
+      <p class="section-help">
+        View a statistical estimate based on a product's saved price history.
+        Predictions are estimates, not guarantees.
+      </p>
+
+      <p id="prediction-product-name">
+        Select a saved product to view its prediction.
+      </p>
+
+      <div id="prediction-results" aria-live="polite">
+        <p id="prediction-status" class="section-help">
+          Select a product to analyse its price history.
+        </p>
+      </div>
+
+      <button id="prediction-refresh-button" type="button" disabled>
+        Refresh prediction
+      </button>
+    </section>
+
+
     <footer>
       PriceWhisper · Prices are based on recorded scans, not live market feeds.
     </footer>

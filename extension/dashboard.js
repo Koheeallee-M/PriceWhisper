@@ -10,6 +10,15 @@ const historyTitle = document.getElementById("history-title");
 const historyDescription = document.getElementById("history-description");
 const historyDetails = document.getElementById("history-details");
 const chart = document.getElementById("history-chart");
+const targetForm = document.getElementById("target-form");
+const targetPriceInput = document.getElementById("target-price");
+const targetCurrencyInput = document.getElementById("target-currency");
+const targetSaveButton = document.getElementById("target-save-button");
+const targetProductName = document.getElementById("target-product-name");
+const targetStatus = document.getElementById("target-status");
+
+let targetProductId = null;
+
 
 let savedProducts = [];
 let selectedProductId = null;
@@ -147,7 +156,38 @@ function renderProducts(products) {
         change.textContent = "Price change unavailable.";
     }
 
-    button.append(name, site, price, change, date);
+    const target = document.createElement("p");
+    target.className = "price-change";
+
+    if (product.target_price !== null && product.target_price !== undefined) {
+    target.textContent =
+        `Target: ${formatPrice(
+        Number(product.target_price).toFixed(2),
+        product.target_currency
+        )}`;
+
+        const currentPrice = numericPrice(product.current_price);
+
+        if (
+            currentPrice !== null &&
+            product.currency &&
+            product.target_currency &&
+            product.currency.toUpperCase() === product.target_currency.toUpperCase()
+        ) {
+            if (currentPrice <= Number(product.target_price)) {
+            target.classList.add("price-drop");
+            target.textContent += " — Target reached!";
+            } else {
+        target.textContent += " — Not reached yet.";
+            }
+        } else if (currentPrice !== null) {
+            target.textContent += " — Currency mismatch; unable to compare.";
+        }
+    } else {
+    target.textContent = "No target price set.";
+    }
+
+    button.append(name, site, price, change, target, date);
     button.addEventListener("click", () => selectProduct(product));
     productsElement.appendChild(button);
 
@@ -157,6 +197,7 @@ function renderProducts(products) {
 async function selectProduct(product) {
   selectedProductId = product.id;
   renderProducts(savedProducts);
+  loadTargetPrice(product);
 
   historyTitle.textContent = `Price history: ${product.name}`;
   historyDescription.textContent =
@@ -409,3 +450,111 @@ window.addEventListener("resize", () => {
 });
 
 loadProducts();
+
+
+async function loadTargetPrice(product) {
+  targetProductId = product.id;
+
+  targetProductName.textContent =
+    `Target price for: ${product.name}`;
+
+  targetPriceInput.disabled = true;
+  targetCurrencyInput.disabled = true;
+  targetSaveButton.disabled = true;
+
+  targetPriceInput.value = "";
+  targetCurrencyInput.value = product.currency || "";
+  targetStatus.textContent = "Loading saved target...";
+
+  try {
+    const response = await fetch(
+      `${API_URL}/api/products/${product.id}/target`
+    );
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.error || "Could not load target price.");
+    }
+
+    if (result.target_price !== null) {
+      targetPriceInput.value = result.target_price;
+      targetCurrencyInput.value = result.target_currency || "";
+      targetStatus.textContent =
+        "Saved target loaded. Save a new value to update it.";
+    } else {
+      targetStatus.textContent =
+        "No target set yet. Enter your target price below.";
+    }
+  } catch (error) {
+    console.error("Could not load target price:", error);
+    targetStatus.textContent =
+      "Could not load the target. Check that Flask is running.";
+  } finally {
+    targetPriceInput.disabled = false;
+    targetCurrencyInput.disabled = false;
+    targetSaveButton.disabled = false;
+  }
+}
+
+targetForm.addEventListener("submit", async event => {
+  event.preventDefault();
+
+  if (targetProductId === null) {
+    targetStatus.textContent = "Select a saved product first.";
+    return;
+  }
+
+  const targetPrice = Number(targetPriceInput.value);
+  const targetCurrency = targetCurrencyInput.value.trim().toUpperCase();
+
+  if (
+    targetPriceInput.value.trim() === "" ||
+    !Number.isFinite(targetPrice) ||
+    targetPrice < 0
+  ) {
+    targetStatus.textContent = "Enter a valid, non-negative target price.";
+    return;
+  }
+
+  if (!targetCurrency) {
+    targetStatus.textContent = "Enter a currency, such as MUR.";
+    return;
+  }
+
+  targetSaveButton.disabled = true;
+  targetStatus.textContent = "Saving target price...";
+
+  try {
+    const response = await fetch(
+      `${API_URL}/api/products/${targetProductId}/target`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          target_price: targetPrice,
+          target_currency: targetCurrency
+        })
+      }
+    );
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.error || "Could not save target price.");
+    }
+
+    targetStatus.textContent =
+      `Target saved: ${result.target_currency} ${Number(result.target_price).toFixed(2)}. ` +
+      "PriceWhisper will check it when you scan this product again.";
+  } catch (error) {
+    console.error("Could not save target price:", error);
+    targetStatus.textContent =
+      error.message || "Could not save target price.";
+  } finally {
+    targetSaveButton.disabled = false;
+  }
+});
+

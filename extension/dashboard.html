@@ -28,6 +28,51 @@
       </div>
     </section>
 
+    
+    <section class="panel">
+      <h2>Target price alert</h2>
+      <p class="section-help">
+        Select a saved product, then set the maximum price you want to pay.
+        PriceWhisper will check your target when you scan the product again.
+      </p>
+
+      <p id="target-product-name">
+        Select a product from your saved products above.
+      </p>
+
+      <form id="target-form" class="search-form">
+        <input
+          id="target-price"
+          type="number"
+          min="0"
+          step="0.01"
+          placeholder="Your target price"
+          aria-label="Target price"
+          required
+          disabled
+        >
+
+        <input
+          id="target-currency"
+          type="text"
+          maxlength="10"
+          placeholder="Currency (e.g. MUR)"
+          aria-label="Target currency"
+          required
+          disabled
+        >
+
+        <button id="target-save-button" type="submit" disabled>
+          Save target
+        </button>
+      </form>
+
+      <p id="target-status" class="section-help" role="status">
+        Choose a product to configure its target price.
+      </p>
+    </section>
+
+
     <section class="panel">
       <h2>Compare possible matches</h2>
       <p class="section-help">

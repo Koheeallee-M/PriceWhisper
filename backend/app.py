@@ -46,6 +46,21 @@ def init_db():
             )
         """)
 
+        columns = {
+            row["name"]
+            for row in db.execute("PRAGMA table_info(products)").fetchall()
+        }
+
+        if "target_price" not in columns:
+            db.execute(
+                "ALTER TABLE products ADD COLUMN target_price REAL"
+            )
+
+        if "target_currency" not in columns:
+            db.execute(
+                "ALTER TABLE products ADD COLUMN target_currency TEXT"
+            )
+
 
 def utc_now():
     return datetime.now(timezone.utc).isoformat()
@@ -205,13 +220,60 @@ def save_product():
             (product["id"],)
         ).fetchone()
 
+    
+    target_alert = {
+        "status": "not_set",
+        "target_price": None,
+        "target_currency": None,
+        "current_price": new_price,
+        "message": "No target price has been set."
+    }
+
+    if new_price is not None:
+        with get_db() as db:
+            target = db.execute("""
+                SELECT target_price, target_currency
+                FROM products
+                WHERE id = ?
+            """, (saved["id"],)).fetchone()
+
+        if target and target["target_price"] is not None:
+            target_price = float(target["target_price"])
+            target_currency = target["target_currency"]
+
+            target_alert = {
+                "status": "currency_mismatch",
+                "target_price": target_price,
+                "target_currency": target_currency,
+                "current_price": new_price,
+                "message": "The target and current price use different currencies."
+            }
+
+            if (
+                currency
+                and target_currency
+                and currency.upper() == target_currency.upper()
+            ):
+                reached = new_price <= target_price
+
+                target_alert = {
+                    "status": "reached" if reached else "not_reached",
+                    "target_price": target_price,
+                    "target_currency": target_currency,
+                    "current_price": new_price,
+                    "message": (
+                        "Target price reached!"
+                        if reached
+                        else "Current price is still above your target."
+                    )
+                }
+
     return jsonify({
         "message": "Product saved successfully.",
         "product": dict(saved),
-        "price_change": price_change
+        "price_change": price_change,
+        "target_alert": target_alert
     }), 201
-
-
 
 
 @app.get("/api/products")
@@ -322,6 +384,74 @@ def product_history(product_id):
         "product": dict(product),
         "history": [dict(item) for item in history]
     })
+
+
+@app.post("/api/products/<int:product_id>/target")
+def set_target_price(product_id):
+    data = request.get_json(silent=True)
+
+    if not isinstance(data, dict):
+        return jsonify({"error": "Send a valid JSON object."}), 400
+
+    target_price = data.get("target_price")
+    target_currency = data.get("target_currency")
+
+    try:
+        target_price = float(target_price)
+        if not math.isfinite(target_price) or target_price < 0:
+            raise ValueError
+    except (ValueError, TypeError):
+        return jsonify({
+            "error": "Target price must be a valid non-negative number."
+        }), 400
+
+    if not isinstance(target_currency, str) or not target_currency.strip():
+        return jsonify({"error": "Target currency is required."}), 400
+
+    target_currency = target_currency.strip().upper()
+
+    with get_db() as db:
+        product = db.execute(
+            "SELECT id FROM products WHERE id = ?",
+            (product_id,)
+        ).fetchone()
+
+        if product is None:
+            return jsonify({"error": "Product not found."}), 404
+
+        db.execute("""
+            UPDATE products
+            SET target_price = ?, target_currency = ?
+            WHERE id = ?
+        """, (target_price, target_currency, product_id))
+
+    return jsonify({
+        "message": "Target price saved successfully.",
+        "product_id": product_id,
+        "target_price": target_price,
+        "target_currency": target_currency
+    }), 200
+
+
+@app.get("/api/products/<int:product_id>/target")
+def get_target_price(product_id):
+    with get_db() as db:
+        product = db.execute("""
+            SELECT id, name, target_price, target_currency
+            FROM products
+            WHERE id = ?
+        """, (product_id,)).fetchone()
+
+    if product is None:
+        return jsonify({"error": "Product not found."}), 404
+
+    return jsonify({
+        "product_id": product["id"],
+        "name": product["name"],
+        "target_price": product["target_price"],
+        "target_currency": product["target_currency"]
+    }), 200
+
 
 
 
